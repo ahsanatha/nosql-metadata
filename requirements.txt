@@ -119,7 +119,7 @@ urllib3==2.2.3
 wadllib==1.3.6
 wrapt==1.16.0
 yarl==1.17.1
-zipp==1.0.0
+zipp==3.19.1
 zope.component==4.3.0
 zope.event==4.4
 zope.hookable==5.1.0
