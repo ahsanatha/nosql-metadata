@@ -12,7 +12,7 @@ import re  # For regular expression matching
 
 # there will be multiple IP to scan
 IP = [
-    "103.41.206.64",  # Add other IPs here
+    "hostaddr",  # Add other IPs here
 ]
 
 # Base URL for the API (will be updated dynamically for each IP)
