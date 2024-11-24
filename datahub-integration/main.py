@@ -152,11 +152,21 @@ def save_to_db(all_datasets, ip):
 
                 # Classify columns based on defined patterns
                 for term, pattern in column_patterns.items():
-                    if re.match(pattern, column_name) and re.match(db_type_pattern, db_type, re.IGNORECASE):
-                        # If column name matches the pattern, classify it with the term
-                        classification_term = f"{term} Column"
-                        cursor.execute('INSERT INTO glossary_terms (column_id, term) VALUES (?, ?)', 
-                                       (column_id, classification_term))
+                    if re.match(db_type_pattern, db_type, re.IGNORECASE):
+                        if re.match(pattern, column_name) :
+                            # If column name matches the pattern, classify it with the term
+                            classification_term = f"{term} Column"
+                            cursor.execute('INSERT INTO glossary_terms (column_id, term) VALUES (?, ?)', 
+                                        (column_id, classification_term))
+                    else:
+                        if 'glossaryTerms' in field:
+                            for term in field['glossaryTerms'].get('terms', []):
+                                glossary_term = term.get('urn', None)
+                                if glossary_term:
+                                    cursor.execute('INSERT INTO glossary_terms (column_id, term) VALUES (?, ?)', 
+                                                (column_id, glossary_term))
+
+
 
     conn.commit()
     conn.close()
