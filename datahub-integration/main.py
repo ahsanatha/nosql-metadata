@@ -121,10 +121,16 @@ def fetch_datasets(ip, params):
         print(f"Error fetching data from {ip}: {response.status_code}")
         return None
 
-def save_to_db(all_datasets, ip):
-    """Save the fetched datasets to the SQLite database."""
+def save_to_db(all_datasets, ip, ensure_unique=True):
+    """Save the fetched datasets to the SQLite database. 
+    If ensure_unique is True, it ensures uniqueness by db_name, db_type, and column_name.
+    """
     conn = setup_db()
     cursor = conn.cursor()
+
+    # Dictionary to temporarily store unique data (only used if ensure_unique is True)
+    if ensure_unique:
+        unique_data = {}
 
     for dataset in all_datasets:
         urn = dataset.get('urn')
@@ -133,11 +139,7 @@ def save_to_db(all_datasets, ip):
         db_name = dataset.get('datasetKey', {}).get('value', {}).get('name')
         db_type = dataset.get('datasetKey', {}).get('value', {}).get('platform')
 
-        # Insert database info into databases table, including IP address
-        cursor.execute('INSERT OR IGNORE INTO databases (db_name, db_type, ip) VALUES (?, ?, ?)', (db_name, db_type, ip))
-        db_id = cursor.lastrowid
-
-        # Insert columns and glossary terms
+        # Insert database info into the unique_data dictionary, keyed by (db_name, db_type, column_name)
         schema_metadata = dataset.get('schemaMetadata', {}).get('value', {})
         if 'fields' in schema_metadata:
             for field in schema_metadata['fields']:
@@ -145,33 +147,88 @@ def save_to_db(all_datasets, ip):
                 native_data_type = field.get('nativeDataType')
                 nullable = field.get('nullable', False)
 
-                # Insert column info into columns table
-                cursor.execute('INSERT INTO columns (db_id, column_name, native_data_type, nullable) VALUES (?, ?, ?, ?)', 
-                               (db_id, column_name, native_data_type, nullable))
-                column_id = cursor.lastrowid
+                # Logic for ensuring uniqueness (if applicable)
+                if ensure_unique:
+                    key = (db_name, db_type, column_name)
+                    if key not in unique_data:
+                        # Add unique entry to the dictionary
+                        unique_data[key] = {
+                            'db_name': db_name,
+                            'db_type': db_type,
+                            'column_name': column_name,
+                            'native_data_type': native_data_type,
+                            'nullable': nullable,
+                            'terms': set()  # Use a set to store terms for uniqueness
+                        }
 
-                # Classify columns based on defined patterns
-                for term, pattern in column_patterns.items():
-                    if re.match(db_type_pattern, db_type, re.IGNORECASE):
-                        if re.match(pattern, column_name) :
-                            # If column name matches the pattern, classify it with the term
-                            classification_term = f"{term} Column"
-                            cursor.execute('INSERT INTO glossary_terms (column_id, term) VALUES (?, ?)', 
-                                        (column_id, classification_term))
-                    else:
-                        if 'glossaryTerms' in field:
-                            for term in field['glossaryTerms'].get('terms', []):
-                                glossary_term = term.get('urn', None)
-                                if glossary_term:
-                                    cursor.execute('INSERT INTO glossary_terms (column_id, term) VALUES (?, ?)', 
-                                                (column_id, glossary_term))
+                    # Classify columns based on defined patterns
+                    for term, pattern in column_patterns.items():
+                        if re.match(db_type_pattern, db_type, re.IGNORECASE):
+                            if re.match(pattern, column_name):
+                                # If column name matches the pattern, classify it with the term
+                                classification_term = f"{term} Column"
+                                unique_data[key]['terms'].add(classification_term)  # Add term to the set
+                        else:
+                            if 'glossaryTerms' in field:
+                                for term in field['glossaryTerms'].get('terms', []):
+                                    glossary_term = term.get('urn', None)
+                                    if glossary_term:
+                                        unique_data[key]['terms'].add(glossary_term)  # Add glossary term to the set
+                else:
+                    # Directly classify and insert data without uniqueness check
+                    key = (db_name, db_type, column_name)
+                    cursor.execute('INSERT OR IGNORE INTO databases (db_name, db_type, ip) VALUES (?, ?, ?)', 
+                                   (db_name, db_type, ip))
+                    db_id = cursor.lastrowid
 
+                    # Insert column info into columns table
+                    cursor.execute('INSERT INTO columns (db_id, column_name, native_data_type, nullable) VALUES (?, ?, ?, ?)', 
+                                   (db_id, column_name, native_data_type, nullable))
+                    column_id = cursor.lastrowid
 
+                    # Classify columns based on defined patterns
+                    for term, pattern in column_patterns.items():
+                        if re.match(db_type_pattern, db_type, re.IGNORECASE):
+                            if re.match(pattern, column_name):
+                                classification_term = f"{term} Column"
+                                cursor.execute('INSERT INTO glossary_terms (column_id, term) VALUES (?, ?)', 
+                                               (column_id, classification_term))
+                        else:
+                            if 'glossaryTerms' in field:
+                                for term in field['glossaryTerms'].get('terms', []):
+                                    glossary_term = term.get('urn', None)
+                                    if glossary_term:
+                                        cursor.execute('INSERT INTO glossary_terms (column_id, term) VALUES (?, ?)', 
+                                                       (column_id, glossary_term))
+
+    if ensure_unique:
+        # Insert unique data into the database
+        for key, value in unique_data.items():
+            db_name = value['db_name']
+            db_type = value['db_type']
+            column_name = value['column_name']
+            native_data_type = value['native_data_type']
+            nullable = value['nullable']
+
+            # Insert database info into databases table, including IP address
+            cursor.execute('INSERT OR IGNORE INTO databases (db_name, db_type, ip) VALUES (?, ?, ?)', (db_name, db_type, ip))
+            db_id = cursor.lastrowid
+
+            # Insert column info into columns table
+            cursor.execute('INSERT OR IGNORE INTO columns (db_id, column_name, native_data_type, nullable) VALUES (?, ?, ?, ?)', 
+                           (db_id, column_name, native_data_type, nullable))
+            column_id = cursor.lastrowid
+
+            # Insert glossary terms into glossary_terms table
+            for term in value['terms']:
+                cursor.execute('INSERT INTO glossary_terms (column_id, term) VALUES (?, ?)', 
+                               (column_id, term))
 
     conn.commit()
     conn.close()
 
-def fetch_all_datasets(ip, max_limit=10000, count=1000):
+
+def fetch_all_datasets(ip, max_limit=10000, count=1000, unique=True):
     """Fetch all datasets using scrollId for pagination."""
     all_datasets = []
     total_fetched = 0
@@ -183,7 +240,7 @@ def fetch_all_datasets(ip, max_limit=10000, count=1000):
         all_datasets.extend(data['entities'])
         total_fetched += len(data['entities'])
         print(f"Fetched {len(data['entities'])} datasets from {ip} (Total: {total_fetched})")
-        save_to_db(all_datasets, ip)  # Save to DB after the first batch
+        save_to_db(all_datasets, ip, unique)  # Save to DB after the first batch
 
         scroll_id = data.get('scrollId', None)
 
@@ -196,7 +253,7 @@ def fetch_all_datasets(ip, max_limit=10000, count=1000):
                 all_datasets.extend(data['entities'])
                 total_fetched += len(data['entities'])
                 print(f"Fetched {len(data['entities'])} datasets from {ip} (Total: {total_fetched})")
-                save_to_db(all_datasets, ip)
+                save_to_db(all_datasets, ip, unique)
 
                 scroll_id = data.get('scrollId', None)
 
@@ -298,13 +355,14 @@ def main():
     parser.add_argument('--export', choices=['json', 'excel'], help='Export data to json or excel')
     parser.add_argument('--count', type=int, default=1000, help='Number of items per page (default: 1000)')
     parser.add_argument('--file', type=str, help='Specify the target file for exporting (json or excel)')
+    parser.add_argument('--unique', action='store_true', default=False, help='Ensure uniqueness by db_name, db_type, and column_name (default: False)')
 
     args = parser.parse_args()
 
     if args.scan:
         for ip in IP:
             print(f"Scanning data from {ip} and saving to SQLite with {args.count} items per page...")
-            datasets = fetch_all_datasets(ip, max_limit=10000, count=args.count)
+            datasets = fetch_all_datasets(ip, max_limit=10000, count=args.count, unique=args.unique)
             print(f"Scan complete for {ip}.")
 
     elif args.export == 'json':
