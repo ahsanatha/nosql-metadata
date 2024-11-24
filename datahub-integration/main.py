@@ -12,7 +12,7 @@ import re  # For regular expression matching
 
 # there will be multiple IP to scan
 IP = [
-    "hostaddr",  # Add other IPs here
+    "103.41.206.64",  # Add other IPs here
 ]
 
 # Base URL for the API (will be updated dynamically for each IP)
@@ -73,6 +73,7 @@ column_patterns = {
     "Cookies": r"(?i)^(.*)(_cookies|browser[ _]?cookies|cookie[ _]?data|web[ _]?cookies)$",
 }
 
+db_type_pattern = r".*MongoDB.*"  # Regex pattern for db_type to match MongoDB, case-insensitive
 
 # SQLite Database Setup
 def setup_db():
@@ -151,7 +152,7 @@ def save_to_db(all_datasets, ip):
 
                 # Classify columns based on defined patterns
                 for term, pattern in column_patterns.items():
-                    if re.match(pattern, column_name):
+                    if re.match(pattern, column_name) and re.match(db_type_pattern, db_type, re.IGNORECASE):
                         # If column name matches the pattern, classify it with the term
                         classification_term = f"{term} Column"
                         cursor.execute('INSERT INTO glossary_terms (column_id, term) VALUES (?, ?)', 
