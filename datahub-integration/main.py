@@ -248,8 +248,8 @@ def export_to_json(target_file):
 
     print(f"Data exported to {target_file}!")
 
-def export_to_excel(target_file):
-    """Export data from SQLite to Excel."""
+def export_to_excel(target_file, row_limit=50000):
+    """Export data from SQLite to Excel. If the file is too large, split it into multiple files."""
     conn = sqlite3.connect('datahub_metadata.db')
     cursor = conn.cursor()
 
@@ -266,9 +266,29 @@ def export_to_excel(target_file):
     # Convert to DataFrame
     df = pd.DataFrame(data, columns=['db_name', 'db_type', 'column_name', 'native_data_type', 'nullable', 'term', 'ip'])
 
-    # Save DataFrame to Excel
-    df.to_excel(target_file, index=False, engine='openpyxl')
-    print(f"Data exported to {target_file}!")
+    # Check if the number of rows exceeds the limit
+    num_rows = len(df)
+    if num_rows > row_limit:
+        print(f"Data has {num_rows} rows, which exceeds the row limit of {row_limit}. Splitting into multiple files...")
+        
+        # Calculate how many parts we need
+        num_parts = (num_rows // row_limit) + 1
+        
+        for i in range(num_parts):
+            # Split the DataFrame into smaller parts
+            start_row = i * row_limit
+            end_row = (i + 1) * row_limit
+            df_chunk = df.iloc[start_row:end_row]
+            
+            # Save each chunk into a separate Excel file
+            file_name = f"{target_file.split('.xlsx')[0]}_{i + 1}.xlsx"
+            df_chunk.to_excel(file_name, index=False, engine='openpyxl')
+            print(f"Data exported to {file_name}!")
+    else:
+        # If the number of rows does not exceed the limit, export the data to one file
+        df.to_excel(target_file, index=False, engine='openpyxl')
+        print(f"Data exported to {target_file}!")
+
 
 def main():
     parser = argparse.ArgumentParser(description='DataHub Metadata Processing')
